@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grilla de Francos Laborales 2025-2026</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="app"></div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAKpos_QuZDFnB5VxPoEMa2d2aPn3KSzHI",
+      authDomain: "grilla-6x3.firebaseapp.com",
+      projectId: "grilla-6x3",
+      storageBucket: "grilla-6x3.firebasestorage.app",
+      messagingSenderId: "203414399587",
+      appId: "1:203414399587:web:54be8aa933eccba6942656"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let vacaciones = { gabriel: {}, nicolas: {}, sergio: {} };
+    let mesSeleccionado = '2025-10';
+    let cargando = true;
+    let mensajeGuardado = '';
+
+    const meses = [
+      { key: '2025-10', nombre: 'Octubre 2025', dias: 31, inicioSemana: 3 },
+      { key: '2025-11', nombre: 'Noviembre 2025', dias: 30, inicioSemana: 6 },
+      { key: '2025-12', nombre: 'Diciembre 2025', dias: 31, inicioSemana: 1 },
+      { key: '2026-01', nombre: 'Enero 2026', dias: 31, inicioSemana: 4 },
+      { key: '2026-02', nombre: 'Febrero 2026', dias: 28, inicioSemana: 0 },
+      { key: '2026-03', nombre: 'Marzo 2026', dias: 31, inicioSemana: 0 },
+      { key: '2026-04', nombre: 'Abril 2026', dias: 30, inicioSemana: 3 },
+      { key: '2026-05', nombre: 'Mayo 2026', dias: 31, inicioSemana: 5 },
+      { key: '2026-06', nombre: 'Junio 2026', dias: 30, inicioSemana: 1 }
+    ];
+
+    const feriados = {
+      '2025-10': [12], '2025-11': [20], '2025-12': [8, 25],
+      '2026-01': [1], '2026-02': [16, 17], '2026-03': [24],
+      '2026-04': [2, 3], '2026-05': [1, 25], '2026-06': [15]
+    };
+
+    onSnapshot(doc(db, 'vacaciones', 'equipo'), (docSnap) => {
+      if (docSnap.exists()) {
+        vacaciones = docSnap.data().vacaciones || { gabriel: {}, nicolas: {}, sergio: {} };
+      }
+      cargando = false;
+      renderApp();
+    });
+
+    async function guardarEnFirebase(nuevasVacaciones) {
+      try {
+        await setDoc(doc(db, 'vacaciones', 'equipo'), {
+          vacaciones: nuevasVacaciones,
+          ultimaActualizacion: new Date().toISOString()
+        });
+        mostrarMensaje('✅ Sincronizado');
+      } catch (error) {
+        console.error('Error:', error);
+        mostrarMensaje('❌ Error al guardar');
+      }
+    }
+
+    function calcularRotacion(diasMes, offset) {
+      const rot = {};
+      const ciclo = [true, true, true, true, true, true, false, false, false];
+      for (let d = 1; d <= diasMes; d++) {
+        rot[d] = ciclo[(offset + d - 1) % 9];
+      }
+      return rot;
+    }
+
+    function getRotaciones(mesKey) {
+      const mes = meses.find(m => m.key === mesKey);
+      const gOffset = {'2025-10':4,'2025-11':0,'2025-12':3,'2026-01':2,'2026-02':1,'2026-03':8,'2026-04':3,'2026-05':6,'2026-06':1};
+      const sOffset = {'2025-10':1,'2025-11':6,'2025-12':0,'2026-01':8,'2026-02':7,'2026-03':5,'2026-04':0,'2026-05':3,'2026-06':7};
+      return {
+        gabrielNicolas: calcularRotacion(mes.dias, gOffset[mesKey]),
+        sergio: calcularRotacion(mes.dias, sOffset[mesKey])
+      };
+    }
+
+    window.toggleVacaciones = async function(persona, dia) {
+      const key = `${mesSeleccionado}-${dia}`;
+      if (!vacaciones[persona]) vacaciones[persona] = {};
+      if (vacaciones[persona][key]) {
+        delete vacaciones[persona][key];
+      } else {
+        vacaciones[persona][key] = true;
+      }
+      await guardarEnFirebase(vacaciones);
+      renderApp();
+    };
+
+    function estaDeVacaciones(persona, dia) {
+      const key = `${mesSeleccionado}-${dia}`;
+      return vacaciones[persona] && vacaciones[persona][key];
+    }
+
+    function esSabado(dia) {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      return (mes.inicioSemana + dia - 1) % 7 === 6;
+    }
+
+    function esDomingo(dia) {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      return (mes.inicioSemana + dia - 1) % 7 === 0;
+    }
+
+    function calcularTotales(rotacion, persona) {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      let trab = 0, franc = 0, vac = 0;
+      for (let d = 1; d <= mes.dias; d++) {
+        if (estaDeVacaciones(persona, d)) vac++;
+        else if (rotacion[d]) trab++;
+        else franc++;
+      }
+      return { trab, franc, vac };
+    }
+
+    window.exportarDatos = function() {
+      const datos = { vacaciones, fecha: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `vacaciones-${new Date().toISOString().split('T')[0]}.json`;
+      link.click();
+      mostrarMensaje('✅ Descargado');
+    };
+
+    window.limpiarDatos = async function() {
+      if (confirm('¿Seguro que quieres borrar TODAS las vacaciones?')) {
+        vacaciones = { gabriel: {}, nicolas: {}, sergio: {} };
+        await guardarEnFirebase(vacaciones);
+        mostrarMensaje('✅ Borrado');
+        renderApp();
+      }
+    };
+
+    function mostrarMensaje(msg) {
+      mensajeGuardado = msg;
+      renderApp();
+      setTimeout(() => {
+        mensajeGuardado = '';
+        renderApp();
+      }, 2000);
+    }
+
+    window.cambiarMes = function(nuevoMes) {
+      mesSeleccionado = nuevoMes;
+      renderApp();
+    };
+
+    function renderApp() {
+      const app = document.getElementById('app');
+      
+      if (cargando) {
+        app.innerHTML = `
+          <div class="flex items-center justify-center min-h-screen">
+            <div class="text-center">
+              <div class="text-4xl mb-4">🔄</div>
+              <p class="text-xl font-semibold text-gray-700">Conectando con Firebase...</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const mesActual = meses.find(m => m.key === mesSeleccionado);
+      const rotaciones = getRotaciones(mesSeleccionado);
+      const feriadosMes = feriados[mesSeleccionado] || [];
+      const tGabriel = calcularTotales(rotaciones.gabrielNicolas, 'gabriel');
+      const tNicolas = calcularTotales(rotaciones.gabrielNicolas, 'nicolas');
+      const tSergio = calcularTotales(rotaciones.sergio, 'sergio');
+
+      let html = `
+        <div class="p-6 max-w-7xl mx-auto min-h-screen">
+          <div class="flex items-center justify-between mb-2">
+            <h1 class="text-3xl font-bold text-gray-800">Grilla de Francos 2025-2026</h1>
+            <div class="flex items-center gap-2 bg-green-100 px-3 py-1 rounded-full">
+              <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <span class="text-sm font-semibold text-green-700">En vivo</span>
+            </div>
+          </div>
+          
+          <p class="text-center text-sm text-gray-600 mb-2">Sistema de rotación 6x3</p>
+          <p class="text-center text-xs text-green-600 font-semibold mb-6">🔥 Sincronización en tiempo real con Firebase</p>
+          
+          <div class="mb-6 flex flex-col sm:flex-row gap-3 items-center justify-between">
+            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-lg font-semibold focus:outline-none focus:border-blue-500">
+              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+            </select>
+            
+            <div class="flex gap-2">
+              <button onclick="exportarDatos()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm">📥 Descargar</button>
+              <button onclick="limpiarDatos()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm">🗑️ Borrar</button>
+            </div>
+          </div>
+          
+          ${mensajeGuardado ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensajeGuardado}</div>` : ''}
+          
+          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-700 text-white">
+                  <th class="p-3 text-left font-semibold">Día</th>
+                  <th class="p-3 text-center font-semibold">Gabriel Palazzini</th>
+                  <th class="p-3 text-center font-semibold">Nicolás Meoniz</th>
+                  <th class="p-3 text-center font-semibold">Sergio Palacios</th>
+                </tr>
+              </thead>
+              <tbody>
+      `;
+
+      for (let dia = 1; dia <= mesActual.dias; dia++) {
+        const finde = esSabado(dia) || esDomingo(dia);
+        const feriado = feriadosMes.includes(dia);
+        const gVac = estaDeVacaciones('gabriel', dia);
+        const nVac = estaDeVacaciones('nicolas', dia);
+        const sVac = estaDeVacaciones('sergio', dia);
+        
+        html += `
+          <tr class="border-b ${finde ? 'bg-blue-50' : ''} ${feriado ? 'bg-yellow-50' : ''}">
+            <td class="p-3 font-medium">
+              <div class="flex items-center gap-2">
+                <span>${dia}</span>
+                ${esSabado(dia) ? '<span class="text-xs text-blue-600">(Sáb)</span>' : ''}
+                ${esDomingo(dia) ? '<span class="text-xs text-blue-600">(Dom)</span>' : ''}
+                ${feriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
+              </div>
+            </td>
+            <td class="p-2 text-center ${gVac ? 'bg-purple-500 text-white font-bold' : (!rotaciones.gabrielNicolas[dia] ? 'bg-pink-400 text-white font-semibold' : '')}">
+              <button onclick="toggleVacaciones('gabriel', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
+                ${gVac ? '🏖️ VACACIONES' : (rotaciones.gabrielNicolas[dia] ? 'Trabaja' : 'FRANCO')}
+              </button>
+            </td>
+            <td class="p-2 text-center ${nVac ? 'bg-purple-500 text-white font-bold' : (!rotaciones.gabrielNicolas[dia] ? 'bg-pink-400 text-white font-semibold' : '')}">
+              <button onclick="toggleVacaciones('nicolas', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
+                ${nVac ? '🏖️ VACACIONES' : (rotaciones.gabrielNicolas[dia] ? 'Trabaja' : 'FRANCO')}
+              </button>
+            </td>
+            <td class="p-2 text-center ${sVac ? 'bg-purple-500 text-white font-bold' : (!rotaciones.sergio[dia] ? 'bg-pink-400 text-white font-semibold' : '')}">
+              <button onclick="toggleVacaciones('sergio', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
+                ${sVac ? '🏖️ VACACIONES' : (rotaciones.sergio[dia] ? 'Trabaja' : 'FRANCO')}
+              </button>
+            </td>
+          </tr>
+        `;
+      }
+
+      html += `
+              </tbody>
+            </table>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white rounded-lg shadow-md p-4">
+              <h3 class="font-bold text-lg mb-3 text-gray-800">Gabriel Palazzini</h3>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-gray-600">Trabajados:</span><span class="font-semibold text-green-600">${tGabriel.trab}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">Francos:</span><span class="font-semibold text-pink-600">${tGabriel.franc}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">Vacaciones:</span><span class="font-semibold text-purple-600">${tGabriel.vac}</span></div>
+              </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-4">
+              <h3 class="font-bold text-lg mb-3 text-gray-800">Nicolás Meoniz</h3>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-gray-600">Trabajados:</span><span class="font-semibold text-green-600">${tNicolas.trab}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">Francos:</span><span class="font-semibold text-pink-600">${tNicolas.franc}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">Vacaciones:</span><span class="font-semibold text-purple-600">${tNicolas.vac}</span></div>
+              </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-4">
+              <h3 class="font-bold text-lg mb-3 text-gray-800">Sergio Palacios</h3>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-gray-600">Trabajados:</span><span class="font-semibold text-green-600">${tSergio.trab}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">Francos:</span><span class="font-semibold text-pink-600">${tSergio.franc}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">Vacaciones:</span><span class="font-semibold text-purple-600">${tSergio.vac}</span></div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-lg shadow-md p-4">
+            <h3 class="font-semibold mb-3 text-gray-800">Leyenda e instrucciones:</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="space-y-2 text-sm">
+                <div class="flex items-center gap-2"><div class="w-4 h-4 bg-pink-400 rounded"></div><span>Días de franco programados</span></div>
+                <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Días de vacaciones (click)</span></div>
+                <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-50 border border-blue-200 rounded"></div><span>Fin de semana</span></div>
+                <div class="flex items-center gap-2"><div class="w-4 h-4 bg-yellow-50 border border-yellow-200 rounded"></div><span>Feriado nacional</span></div>
+              </div>
+              <div class="text-sm text-gray-700 space-y-1">
+                <p><strong>🔥 Sincronización en tiempo real:</strong></p>
+                <p>• Click en cualquier día para marcar vacaciones</p>
+                <p>• Los cambios se ven instantáneamente en todos los dispositivos</p>
+                <p>• Comparte este link con tu equipo</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      app.innerHTML = html;
+    }
+
+    renderApp();
+  </script>
+</body>
+</html>
