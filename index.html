@@ -11,6 +11,12 @@
       50% { opacity: 0.5; }
     }
     .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white; }
+      button { display: none !important; }
+    }
   </style>
 </head>
 <body class="bg-gray-50">
@@ -36,6 +42,9 @@
     let mesSeleccionado = '2025-10';
     let cargando = true;
     let mensajeGuardado = '';
+    let modoEdicion = false;
+    let francoSeleccionado = null;
+    let personaFiltro = 'todos';
 
     const meses = [
       { key: '2025-10', nombre: 'Octubre 2025', dias: 31, inicioSemana: 3 },
@@ -122,15 +131,48 @@
       return (mes.inicioSemana + dia - 1) % 7 === 0;
     }
 
+    function getNombreDia(dia) {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      const diaSemana = (mes.inicioSemana + dia - 1) % 7;
+      const nombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+      return nombres[diaSemana];
+    }
+
     function calcularTotales(rotacion, persona) {
       const mes = meses.find(m => m.key === mesSeleccionado);
-      let trab = 0, franc = 0, vac = 0;
+      const feriadosMes = feriados[mesSeleccionado] || [];
+      let feriadosTrabajados = [];
+      let feriadosNoTrabajados = [];
+      let vac = 0;
+      
       for (let d = 1; d <= mes.dias; d++) {
         if (estaDeVacaciones(persona, d)) vac++;
-        else if (rotacion[d]) trab++;
-        else franc++;
+        if (feriadosMes.includes(d)) {
+          if (estaDeVacaciones(persona, d)) {
+            feriadosNoTrabajados.push(d);
+          } else if (rotacion[d]) {
+            feriadosTrabajados.push(d);
+          } else {
+            feriadosNoTrabajados.push(d);
+          }
+        }
       }
-      return { trab, franc, vac };
+      return { feriadosTrabajados, feriadosNoTrabajados, vac };
+    }
+    
+    function getNombreFeriado(dia, mesKey) {
+      const nombresFeriados = {
+        '2025-10': {12: 'Día del Respeto a la Diversidad Cultural'},
+        '2025-11': {20: 'Día de la Soberanía Nacional'},
+        '2025-12': {8: 'Inmaculada Concepción', 25: 'Navidad'},
+        '2026-01': {1: 'Año Nuevo'},
+        '2026-02': {16: 'Carnaval', 17: 'Carnaval'},
+        '2026-03': {24: 'Día de la Memoria'},
+        '2026-04': {2: 'Día del Veterano', 3: 'Viernes Santo'},
+        '2026-05': {1: 'Día del Trabajador', 25: 'Revolución de Mayo'},
+        '2026-06': {15: 'Día de Güemes'}
+      };
+      return nombresFeriados[mesKey]?.[dia] || 'Feriado';
     }
 
     window.exportarDatos = function() {
@@ -167,6 +209,81 @@
       renderApp();
     };
 
+    window.toggleModoEdicion = function() {
+      modoEdicion = !modoEdicion;
+      francoSeleccionado = null;
+      renderApp();
+    };
+
+    window.cambiarFiltro = function(filtro) {
+      personaFiltro = filtro;
+      renderApp();
+    };
+
+    window.imprimirGrilla = function() {
+      window.print();
+    };
+
+    function calcularResumenAnual(persona) {
+      let totalFeriadosTrabajados = 0;
+      let totalFeriadosNoTrabajados = 0;
+      
+      meses.forEach(mes => {
+        const rotaciones = getRotaciones(mes.key);
+        const feriadosMes = feriados[mes.key] || [];
+        const rotacion = (persona === 'gabriel' || persona === 'nicolas') ? rotaciones.gabrielNicolas : rotaciones.sergio;
+        
+        feriadosMes.forEach(dia => {
+          const keyVac = `${mes.key}-${dia}`;
+          const estaVacaciones = vacaciones[persona] && vacaciones[persona][keyVac];
+          
+          if (estaVacaciones || !rotacion[dia]) {
+            totalFeriadosNoTrabajados++;
+          } else {
+            totalFeriadosTrabajados++;
+          }
+        });
+      });
+      
+      return { totalFeriadosTrabajados, totalFeriadosNoTrabajados };
+    }
+
+    window.moverFranco = async function(persona, diaOrigen, diaDestino) {
+      const rotaciones = getRotaciones(mesSeleccionado);
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      
+      if (diaDestino < 1 || diaDestino > mes.dias) {
+        mostrarMensaje('❌ Día inválido');
+        return;
+      }
+      
+      const esGabrielNicolas = persona === 'gabriel' || persona === 'nicolas';
+      const rotacion = esGabrielNicolas ? rotaciones.gabrielNicolas : rotaciones.sergio;
+      
+      if (!rotacion[diaDestino]) {
+        mostrarMensaje('❌ El destino ya es franco');
+        return;
+      }
+      
+      if (estaDeVacaciones(persona, diaDestino)) {
+        mostrarMensaje('❌ El destino tiene vacaciones');
+        return;
+      }
+      
+      const keyOrigen = `franco_${mesSeleccionado}-${diaOrigen}`;
+      const keyDestino = `franco_${mesSeleccionado}-${diaDestino}`;
+      
+      if (!vacaciones[persona]) vacaciones[persona] = {};
+      vacaciones[persona][keyOrigen] = false;
+      vacaciones[persona][keyDestino] = true;
+      
+      await guardarEnFirebase(vacaciones);
+      mostrarMensaje('✅ Franco movido');
+      modoEdicion = false;
+      francoSeleccionado = null;
+      renderApp();
+    };
+
     function renderApp() {
       const app = document.getElementById('app');
       
@@ -177,6 +294,53 @@
               <div class="text-4xl mb-4">🔄</div>
               <p class="text-xl font-semibold text-gray-700">Conectando con Firebase...</p>
             </div>
+          
+          <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow-md p-6 mb-6">
+            <h3 class="font-bold text-xl mb-4 text-gray-800 text-center">📊 Resumen Anual (Oct 2025 - Jun 2026)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="bg-white rounded-lg p-4 shadow">
+                <h4 class="font-semibold text-center mb-2 text-gray-700">Gabriel Palazzini</h4>
+                <div class="text-center">
+                  <div class="mb-2">
+                    <span class="text-3xl font-bold text-red-600">${calcularResumenAnual('gabriel').totalFeriadosTrabajados}</span>
+                    <p class="text-xs text-gray-600">Feriados trabajados</p>
+                  </div>
+                  <div>
+                    <span class="text-3xl font-bold text-green-600">${calcularResumenAnual('gabriel').totalFeriadosNoTrabajados}</span>
+                    <p class="text-xs text-gray-600">Feriados libres</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="bg-white rounded-lg p-4 shadow">
+                <h4 class="font-semibold text-center mb-2 text-gray-700">Nicolás Meoniz</h4>
+                <div class="text-center">
+                  <div class="mb-2">
+                    <span class="text-3xl font-bold text-red-600">${calcularResumenAnual('nicolas').totalFeriadosTrabajados}</span>
+                    <p class="text-xs text-gray-600">Feriados trabajados</p>
+                  </div>
+                  <div>
+                    <span class="text-3xl font-bold text-green-600">${calcularResumenAnual('nicolas').totalFeriadosNoTrabajados}</span>
+                    <p class="text-xs text-gray-600">Feriados libres</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="bg-white rounded-lg p-4 shadow">
+                <h4 class="font-semibold text-center mb-2 text-gray-700">Sergio Palacios</h4>
+                <div class="text-center">
+                  <div class="mb-2">
+                    <span class="text-3xl font-bold text-red-600">${calcularResumenAnual('sergio').totalFeriadosTrabajados}</span>
+                    <p class="text-xs text-gray-600">Feriados trabajados</p>
+                  </div>
+                  <div>
+                    <span class="text-3xl font-bold text-green-600">${calcularResumenAnual('sergio').totalFeriadosNoTrabajados}</span>
+                    <p class="text-xs text-gray-600">Feriados libres</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           </div>
         `;
         return;
@@ -193,7 +357,7 @@
         <div class="p-6 max-w-7xl mx-auto min-h-screen">
           <div class="flex items-center justify-between mb-2">
             <h1 class="text-3xl font-bold text-gray-800">Grilla de Francos 2025-2026</h1>
-            <div class="flex items-center gap-2 bg-green-100 px-3 py-1 rounded-full">
+            <div class="flex items-center gap-2 bg-green-100 px-3 py-1 rounded-full no-print">
               <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
               <span class="text-sm font-semibold text-green-700">En vivo</span>
             </div>
@@ -203,26 +367,41 @@
           <p class="text-center text-xs text-green-600 font-semibold mb-6">🔥 Sincronización en tiempo real con Firebase</p>
           
           <div class="mb-6 flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-lg font-semibold focus:outline-none focus:border-blue-500">
-              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
-            </select>
+            <div class="flex gap-2 flex-wrap">
+              <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-lg font-semibold focus:outline-none focus:border-blue-500">
+                ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+              </select>
+              
+              <select onchange="cambiarFiltro(this.value)" class="px-3 py-2 border-2 border-gray-300 rounded-lg text-sm font-semibold focus:outline-none focus:border-blue-500">
+                <option value="todos" ${personaFiltro === 'todos' ? 'selected' : ''}>👥 Todos</option>
+                <option value="gabriel" ${personaFiltro === 'gabriel' ? 'selected' : ''}>Gabriel</option>
+                <option value="nicolas" ${personaFiltro === 'nicolas' ? 'selected' : ''}>Nicolás</option>
+                <option value="sergio" ${personaFiltro === 'sergio' ? 'selected' : ''}>Sergio</option>
+              </select>
+            </div>
             
-            <div class="flex gap-2">
-              <button onclick="exportarDatos()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm">📥 Descargar</button>
-              <button onclick="limpiarDatos()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm">🗑️ Borrar</button>
+            <div class="flex gap-2 flex-wrap">
+              <button onclick="imprimirGrilla()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm no-print">🖨️ Imprimir</button>
+              <button onclick="toggleModoEdicion()" class="px-4 py-2 ${modoEdicion ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg font-semibold text-sm no-print">
+                ${modoEdicion ? '❌ Cancelar' : '✏️ Mover francos'}
+              </button>
+              <button onclick="exportarDatos()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm no-print">📥 Descargar</button>
+              <button onclick="limpiarDatos()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm no-print">🗑️ Borrar</button>
             </div>
           </div>
           
-          ${mensajeGuardado ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensajeGuardado}</div>` : ''}
+          ${modoEdicion ? '<div class="mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded-lg text-center font-semibold no-print">📝 Modo edición: Click en un FRANCO para seleccionarlo, luego escribe el día al que quieres moverlo</div>' : ''}
+          
+          ${mensajeGuardado ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold no-print">${mensajeGuardado}</div>` : ''}
           
           <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
             <table class="w-full">
               <thead>
                 <tr class="bg-gray-700 text-white">
                   <th class="p-3 text-left font-semibold">Día</th>
-                  <th class="p-3 text-center font-semibold">Gabriel Palazzini</th>
-                  <th class="p-3 text-center font-semibold">Nicolás Meoniz</th>
-                  <th class="p-3 text-center font-semibold">Sergio Palacios</th>
+                  ${(personaFiltro === 'todos' || personaFiltro === 'gabriel') ? '<th class="p-3 text-center font-semibold">Gabriel Palazzini</th>' : ''}
+                  ${(personaFiltro === 'todos' || personaFiltro === 'nicolas') ? '<th class="p-3 text-center font-semibold">Nicolás Meoniz</th>' : ''}
+                  ${(personaFiltro === 'todos' || personaFiltro === 'sergio') ? '<th class="p-3 text-center font-semibold">Sergio Palacios</th>' : ''}
                 </tr>
               </thead>
               <tbody>
@@ -234,33 +413,62 @@
         const gVac = estaDeVacaciones('gabriel', dia);
         const nVac = estaDeVacaciones('nicolas', dia);
         const sVac = estaDeVacaciones('sergio', dia);
+        const gFranco = !rotaciones.gabrielNicolas[dia];
+        const sFranco = !rotaciones.sergio[dia];
         
         html += `
           <tr class="border-b ${finde ? 'bg-blue-50' : ''} ${feriado ? 'bg-yellow-50' : ''}">
             <td class="p-3 font-medium">
               <div class="flex items-center gap-2">
-                <span>${dia}</span>
-                ${esSabado(dia) ? '<span class="text-xs text-blue-600">(Sáb)</span>' : ''}
-                ${esDomingo(dia) ? '<span class="text-xs text-blue-600">(Dom)</span>' : ''}
+                <span class="font-bold">${dia}</span>
+                <span class="text-gray-600 text-sm">${getNombreDia(dia)}</span>
                 ${feriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
               </div>
-            </td>
-            <td class="p-2 text-center ${gVac ? 'bg-purple-500 text-white font-bold' : (!rotaciones.gabrielNicolas[dia] ? 'bg-pink-400 text-white font-semibold' : '')}">
-              <button onclick="toggleVacaciones('gabriel', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
-                ${gVac ? '🏖️ VACACIONES' : (rotaciones.gabrielNicolas[dia] ? 'Trabaja' : 'FRANCO')}
-              </button>
-            </td>
-            <td class="p-2 text-center ${nVac ? 'bg-purple-500 text-white font-bold' : (!rotaciones.gabrielNicolas[dia] ? 'bg-pink-400 text-white font-semibold' : '')}">
-              <button onclick="toggleVacaciones('nicolas', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
-                ${nVac ? '🏖️ VACACIONES' : (rotaciones.gabrielNicolas[dia] ? 'Trabaja' : 'FRANCO')}
-              </button>
-            </td>
-            <td class="p-2 text-center ${sVac ? 'bg-purple-500 text-white font-bold' : (!rotaciones.sergio[dia] ? 'bg-pink-400 text-white font-semibold' : '')}">
-              <button onclick="toggleVacaciones('sergio', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
-                ${sVac ? '🏖️ VACACIONES' : (rotaciones.sergio[dia] ? 'Trabaja' : 'FRANCO')}
-              </button>
-            </td>
-          </tr>
+            </td>`;
+            
+            if (personaFiltro === 'todos' || personaFiltro === 'gabriel') {
+              html += `<td class="p-2 text-center ${gVac ? 'bg-purple-500 text-white font-bold' : (gFranco ? 'bg-pink-400 text-white font-semibold' : '')}">
+              ${modoEdicion && gFranco && !gVac ? `
+                <button onclick="var destino = prompt('Mover franco del día ${dia} al día:'); if(destino) moverFranco('gabriel', ${dia}, parseInt(destino));" class="w-full px-2 py-1 rounded hover:opacity-80 transition bg-orange-500 hover:bg-orange-600">
+                  ↔️ MOVER
+                </button>
+              ` : `
+                <button onclick="toggleVacaciones('gabriel', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
+                  ${gVac ? '🏖️ VACACIONES' : (gFranco ? 'FRANCO' : 'Trabaja')}
+                </button>
+              `}
+            </td>`;
+            }
+            
+            if (personaFiltro === 'todos' || personaFiltro === 'nicolas') {
+              html += `<td class="p-2 text-center ${nVac ? 'bg-purple-500 text-white font-bold' : (gFranco ? 'bg-pink-400 text-white font-semibold' : '')}">
+              ${modoEdicion && gFranco && !nVac ? `
+                <button onclick="var destino = prompt('Mover franco del día ${dia} al día:'); if(destino) moverFranco('nicolas', ${dia}, parseInt(destino));" class="w-full px-2 py-1 rounded hover:opacity-80 transition bg-orange-500 hover:bg-orange-600">
+                  ↔️ MOVER
+                </button>
+              ` : `
+                <button onclick="toggleVacaciones('nicolas', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
+                  ${nVac ? '🏖️ VACACIONES' : (gFranco ? 'FRANCO' : 'Trabaja')}
+                </button>
+              `}
+            </td>`;
+            }
+            
+            if (personaFiltro === 'todos' || personaFiltro === 'sergio') {
+              html += `<td class="p-2 text-center ${sVac ? 'bg-purple-500 text-white font-bold' : (sFranco ? 'bg-pink-400 text-white font-semibold' : '')}">
+              ${modoEdicion && sFranco && !sVac ? `
+                <button onclick="var destino = prompt('Mover franco del día ${dia} al día:'); if(destino) moverFranco('sergio', ${dia}, parseInt(destino));" class="w-full px-2 py-1 rounded hover:opacity-80 transition bg-orange-500 hover:bg-orange-600">
+                  ↔️ MOVER
+                </button>
+              ` : `
+                <button onclick="toggleVacaciones('sergio', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
+                  ${sVac ? '🏖️ VACACIONES' : (sFranco ? 'FRANCO' : 'Trabaja')}
+                </button>
+              `}
+            </td>`;
+            }
+            
+        html += `</tr>
         `;
       }
 
@@ -272,28 +480,73 @@
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div class="bg-white rounded-lg shadow-md p-4">
               <h3 class="font-bold text-lg mb-3 text-gray-800">Gabriel Palazzini</h3>
-              <div class="space-y-2 text-sm">
-                <div class="flex justify-between"><span class="text-gray-600">Trabajados:</span><span class="font-semibold text-green-600">${tGabriel.trab}</span></div>
-                <div class="flex justify-between"><span class="text-gray-600">Francos:</span><span class="font-semibold text-pink-600">${tGabriel.franc}</span></div>
-                <div class="flex justify-between"><span class="text-gray-600">Vacaciones:</span><span class="font-semibold text-purple-600">${tGabriel.vac}</span></div>
+              <div class="space-y-3 text-sm">
+                <div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-gray-600">Feriados trabajados:</span>
+                    <span class="font-semibold text-red-600">${tGabriel.feriadosTrabajados.length}</span>
+                  </div>
+                  ${tGabriel.feriadosTrabajados.length > 0 ? `<div class="text-xs text-gray-500 pl-2">${tGabriel.feriadosTrabajados.map(d => `${d} - ${getNombreFeriado(d, mesSeleccionado)}`).join('<br>')}</div>` : '<div class="text-xs text-gray-400 pl-2">Ninguno</div>'}
+                </div>
+                <div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-gray-600">Feriados NO trabajados:</span>
+                    <span class="font-semibold text-green-600">${tGabriel.feriadosNoTrabajados.length}</span>
+                  </div>
+                  ${tGabriel.feriadosNoTrabajados.length > 0 ? `<div class="text-xs text-gray-500 pl-2">${tGabriel.feriadosNoTrabajados.map(d => `${d} - ${getNombreFeriado(d, mesSeleccionado)}`).join('<br>')}</div>` : '<div class="text-xs text-gray-400 pl-2">Ninguno</div>'}
+                </div>
+                <div class="flex justify-between border-t pt-2">
+                  <span class="text-gray-600">Vacaciones:</span>
+                  <span class="font-semibold text-purple-600">${tGabriel.vac}</span>
+                </div>
               </div>
             </div>
             
             <div class="bg-white rounded-lg shadow-md p-4">
               <h3 class="font-bold text-lg mb-3 text-gray-800">Nicolás Meoniz</h3>
-              <div class="space-y-2 text-sm">
-                <div class="flex justify-between"><span class="text-gray-600">Trabajados:</span><span class="font-semibold text-green-600">${tNicolas.trab}</span></div>
-                <div class="flex justify-between"><span class="text-gray-600">Francos:</span><span class="font-semibold text-pink-600">${tNicolas.franc}</span></div>
-                <div class="flex justify-between"><span class="text-gray-600">Vacaciones:</span><span class="font-semibold text-purple-600">${tNicolas.vac}</span></div>
+              <div class="space-y-3 text-sm">
+                <div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-gray-600">Feriados trabajados:</span>
+                    <span class="font-semibold text-red-600">${tNicolas.feriadosTrabajados.length}</span>
+                  </div>
+                  ${tNicolas.feriadosTrabajados.length > 0 ? `<div class="text-xs text-gray-500 pl-2">${tNicolas.feriadosTrabajados.map(d => `${d} - ${getNombreFeriado(d, mesSeleccionado)}`).join('<br>')}</div>` : '<div class="text-xs text-gray-400 pl-2">Ninguno</div>'}
+                </div>
+                <div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-gray-600">Feriados NO trabajados:</span>
+                    <span class="font-semibold text-green-600">${tNicolas.feriadosNoTrabajados.length}</span>
+                  </div>
+                  ${tNicolas.feriadosNoTrabajados.length > 0 ? `<div class="text-xs text-gray-500 pl-2">${tNicolas.feriadosNoTrabajados.map(d => `${d} - ${getNombreFeriado(d, mesSeleccionado)}`).join('<br>')}</div>` : '<div class="text-xs text-gray-400 pl-2">Ninguno</div>'}
+                </div>
+                <div class="flex justify-between border-t pt-2">
+                  <span class="text-gray-600">Vacaciones:</span>
+                  <span class="font-semibold text-purple-600">${tNicolas.vac}</span>
+                </div>
               </div>
             </div>
             
             <div class="bg-white rounded-lg shadow-md p-4">
               <h3 class="font-bold text-lg mb-3 text-gray-800">Sergio Palacios</h3>
-              <div class="space-y-2 text-sm">
-                <div class="flex justify-between"><span class="text-gray-600">Trabajados:</span><span class="font-semibold text-green-600">${tSergio.trab}</span></div>
-                <div class="flex justify-between"><span class="text-gray-600">Francos:</span><span class="font-semibold text-pink-600">${tSergio.franc}</span></div>
-                <div class="flex justify-between"><span class="text-gray-600">Vacaciones:</span><span class="font-semibold text-purple-600">${tSergio.vac}</span></div>
+              <div class="space-y-3 text-sm">
+                <div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-gray-600">Feriados trabajados:</span>
+                    <span class="font-semibold text-red-600">${tSergio.feriadosTrabajados.length}</span>
+                  </div>
+                  ${tSergio.feriadosTrabajados.length > 0 ? `<div class="text-xs text-gray-500 pl-2">${tSergio.feriadosTrabajados.map(d => `${d} - ${getNombreFeriado(d, mesSeleccionado)}`).join('<br>')}</div>` : '<div class="text-xs text-gray-400 pl-2">Ninguno</div>'}
+                </div>
+                <div>
+                  <div class="flex justify-between mb-1">
+                    <span class="text-gray-600">Feriados NO trabajados:</span>
+                    <span class="font-semibold text-green-600">${tSergio.feriadosNoTrabajados.length}</span>
+                  </div>
+                  ${tSergio.feriadosNoTrabajados.length > 0 ? `<div class="text-xs text-gray-500 pl-2">${tSergio.feriadosNoTrabajados.map(d => `${d} - ${getNombreFeriado(d, mesSeleccionado)}`).join('<br>')}</div>` : '<div class="text-xs text-gray-400 pl-2">Ninguno</div>'}
+                </div>
+                <div class="flex justify-between border-t pt-2">
+                  <span class="text-gray-600">Vacaciones:</span>
+                  <span class="font-semibold text-purple-600">${tSergio.vac}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -308,13 +561,20 @@
                 <div class="flex items-center gap-2"><div class="w-4 h-4 bg-yellow-50 border border-yellow-200 rounded"></div><span>Feriado nacional</span></div>
               </div>
               <div class="text-sm text-gray-700 space-y-1">
-                <p><strong>🔥 Sincronización en tiempo real:</strong></p>
+                <p><strong>🔥 Funcionalidades:</strong></p>
                 <p>• Click en cualquier día para marcar vacaciones</p>
                 <p>• Los cambios se ven instantáneamente en todos los dispositivos</p>
-                <p>• Comparte este link con tu equipo</p>
+                <p>• Usa "✏️ Mover francos" para cambiar días de descanso</p>
+                <p>• Filtra por persona para ver solo una columna</p>
+                <p>• Imprime la grilla del mes actual</p>
+                <p>• Revisa el resumen anual arriba</p>
               </div>
             </div>
           </div>
+          
+          <footer class="mt-8 text-center text-xs text-gray-400 pb-4">
+            Creado por Gabriel Palazzini
+          </footer>
         </div>
       `;
 
