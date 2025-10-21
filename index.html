@@ -97,50 +97,80 @@
     function getRotaciones(mesKey) {
       const mes = meses.find(m => m.key === mesKey);
       
-      // Offsets corregidos basados en:
-      // Gabriel/Nicolás: franco 21, 22, 23 octubre
-      // Sergio: franco 24, 25, 26 octubre
-      const gOffset = {
-        '2025-10': 4,  // Del 21-23 franco
-        '2025-11': 8,  // Continúa el patrón
-        '2025-12': 2,
-        '2026-01': 6,
-        '2026-02': 1,
-        '2026-03': 2,
-        '2026-04': 6,
-        '2026-05': 0,
-        '2026-06': 4
-      };
+      // Gabriel/Nicolás: franco 21, 22, 23 octubre → offset = 4
+      // Sergio: franco 24, 25, 26 octubre → offset = 1
       
-      const sOffset = {
-        '2025-10': 1,  // Del 24-26 franco
-        '2025-11': 5,  // Continúa el patrón
-        '2025-12': 8,
-        '2026-01': 3,
-        '2026-02': 7,
-        '2026-03': 8,
-        '2026-04': 3,
-        '2026-05': 6,
-        '2026-06': 1
-      };
+      // Calcular offsets para cada mes basado en continuidad
+      let offsetGabrielNicolas, offsetSergio;
       
-      const rotacionGabrielNicolas = calcularRotacion(mes.dias, gOffset[mesKey]);
-      const rotacionSergio = calcularRotacion(mes.dias, sOffset[mesKey]);
+      switch(mesKey) {
+        case '2025-10':
+          offsetGabrielNicolas = 4;
+          offsetSergio = 1;
+          break;
+        case '2025-11':
+          // Oct termina en día 31, pos (4+30)%9 = 34%9 = 7
+          // Nov día 1 es pos 8
+          offsetGabrielNicolas = 8;
+          // Oct termina en día 31, pos (1+30)%9 = 31%9 = 4
+          // Nov día 1 es pos 5
+          offsetSergio = 5;
+          break;
+        case '2025-12':
+          // Nov termina en día 30, pos (8+29)%9 = 37%9 = 1
+          // Dic día 1 es pos 2
+          offsetGabrielNicolas = 2;
+          offsetSergio = 8;
+          break;
+        case '2026-01':
+          offsetGabrielNicolas = 6;
+          offsetSergio = 3;
+          break;
+        case '2026-02':
+          offsetGabrielNicolas = 1;
+          offsetSergio = 7;
+          break;
+        case '2026-03':
+          offsetGabrielNicolas = 2;
+          offsetSergio = 8;
+          break;
+        case '2026-04':
+          offsetGabrielNicolas = 6;
+          offsetSergio = 3;
+          break;
+        case '2026-05':
+          offsetGabrielNicolas = 0;
+          offsetSergio = 6;
+          break;
+        case '2026-06':
+          offsetGabrielNicolas = 4;
+          offsetSergio = 1;
+          break;
+        default:
+          offsetGabrielNicolas = 4;
+          offsetSergio = 1;
+      }
       
-      // Aplicar movimientos de francos para Gabriel
+      // Crear rotaciones base
+      const rotacionBase = calcularRotacion(mes.dias, offsetGabrielNicolas);
+      const rotacionSergio = calcularRotacion(mes.dias, offsetSergio);
+      
+      // Gabriel y Nicolás empiezan con LA MISMA rotación base
+      const rotacionGabriel = {...rotacionBase};
+      const rotacionNicolas = {...rotacionBase};
+      
+      // Aplicar SOLO movimientos de francos (no afecta la rotación compartida)
       if (vacaciones.gabriel) {
         for (let dia = 1; dia <= mes.dias; dia++) {
           const keyFranco = `franco_${mesKey}-${dia}`;
           if (vacaciones.gabriel[keyFranco] === true) {
-            rotacionGabrielNicolas[dia] = false; // Es franco
+            rotacionGabriel[dia] = false;
           } else if (vacaciones.gabriel[keyFranco] === false) {
-            rotacionGabrielNicolas[dia] = true; // Ya no es franco
+            rotacionGabriel[dia] = true;
           }
         }
       }
       
-      // Aplicar movimientos de francos para Nicolás (copia independiente)
-      const rotacionNicolas = {...rotacionGabrielNicolas};
       if (vacaciones.nicolas) {
         for (let dia = 1; dia <= mes.dias; dia++) {
           const keyFranco = `franco_${mesKey}-${dia}`;
@@ -152,7 +182,6 @@
         }
       }
       
-      // Aplicar movimientos de francos para Sergio
       if (vacaciones.sergio) {
         for (let dia = 1; dia <= mes.dias; dia++) {
           const keyFranco = `franco_${mesKey}-${dia}`;
@@ -165,7 +194,7 @@
       }
       
       return {
-        gabrielNicolas: rotacionGabrielNicolas,
+        gabrielNicolas: rotacionGabriel,
         nicolas: rotacionNicolas,
         sergio: rotacionSergio
       };
@@ -464,8 +493,9 @@
               <button onclick="toggleModoEdicion()" class="px-4 py-2 ${modoEdicion ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg font-semibold text-sm no-print">
                 ${modoEdicion ? '❌ Cancelar' : '✏️ Mover francos'}
               </button>
+              <button onclick="resetearRotaciones()" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-semibold text-sm no-print">🔄 Resetear rotaciones</button>
               <button onclick="exportarDatos()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm no-print">📥 Descargar</button>
-              <button onclick="limpiarDatos()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm no-print">🗑️ Borrar</button>
+              <button onclick="limpiarDatos()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm no-print">🗑️ Borrar todo</button>
             </div>
           </div>
           
