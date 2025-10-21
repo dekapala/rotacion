@@ -98,9 +98,51 @@
       const mes = meses.find(m => m.key === mesKey);
       const gOffset = {'2025-10':4,'2025-11':0,'2025-12':3,'2026-01':2,'2026-02':1,'2026-03':8,'2026-04':3,'2026-05':6,'2026-06':1};
       const sOffset = {'2025-10':1,'2025-11':6,'2025-12':0,'2026-01':8,'2026-02':7,'2026-03':5,'2026-04':0,'2026-05':3,'2026-06':7};
+      
+      const rotacionGabrielNicolas = calcularRotacion(mes.dias, gOffset[mesKey]);
+      const rotacionSergio = calcularRotacion(mes.dias, sOffset[mesKey]);
+      
+      // Aplicar movimientos de francos para Gabriel
+      if (vacaciones.gabriel) {
+        for (let dia = 1; dia <= mes.dias; dia++) {
+          const keyFranco = `franco_${mesKey}-${dia}`;
+          if (vacaciones.gabriel[keyFranco] === true) {
+            rotacionGabrielNicolas[dia] = false; // Es franco
+          } else if (vacaciones.gabriel[keyFranco] === false) {
+            rotacionGabrielNicolas[dia] = true; // Ya no es franco
+          }
+        }
+      }
+      
+      // Aplicar movimientos de francos para Nicolás
+      const rotacionNicolas = {...rotacionGabrielNicolas};
+      if (vacaciones.nicolas) {
+        for (let dia = 1; dia <= mes.dias; dia++) {
+          const keyFranco = `franco_${mesKey}-${dia}`;
+          if (vacaciones.nicolas[keyFranco] === true) {
+            rotacionNicolas[dia] = false;
+          } else if (vacaciones.nicolas[keyFranco] === false) {
+            rotacionNicolas[dia] = true;
+          }
+        }
+      }
+      
+      // Aplicar movimientos de francos para Sergio
+      if (vacaciones.sergio) {
+        for (let dia = 1; dia <= mes.dias; dia++) {
+          const keyFranco = `franco_${mesKey}-${dia}`;
+          if (vacaciones.sergio[keyFranco] === true) {
+            rotacionSergio[dia] = false;
+          } else if (vacaciones.sergio[keyFranco] === false) {
+            rotacionSergio[dia] = true;
+          }
+        }
+      }
+      
       return {
-        gabrielNicolas: calcularRotacion(mes.dias, gOffset[mesKey]),
-        sergio: calcularRotacion(mes.dias, sOffset[mesKey])
+        gabrielNicolas: rotacionGabrielNicolas,
+        nicolas: rotacionNicolas,
+        sergio: rotacionSergio
       };
     }
 
@@ -249,36 +291,40 @@
     }
 
     window.moverFranco = async function(persona, diaOrigen, diaDestino) {
-      const rotaciones = getRotaciones(mesSeleccionado);
       const mes = meses.find(m => m.key === mesSeleccionado);
       
-      if (diaDestino < 1 || diaDestino > mes.dias) {
+      if (!diaDestino || diaDestino < 1 || diaDestino > mes.dias) {
         mostrarMensaje('❌ Día inválido');
         return;
       }
       
-      const esGabrielNicolas = persona === 'gabriel' || persona === 'nicolas';
-      const rotacion = esGabrielNicolas ? rotaciones.gabrielNicolas : rotaciones.sergio;
+      const rotaciones = getRotaciones(mesSeleccionado);
+      const rotacion = persona === 'sergio' ? rotaciones.sergio : (persona === 'nicolas' ? rotaciones.nicolas : rotaciones.gabrielNicolas);
       
+      // Verificar que el destino sea un día laboral (no franco original ni vacaciones)
       if (!rotacion[diaDestino]) {
-        mostrarMensaje('❌ El destino ya es franco');
+        mostrarMensaje('❌ El día destino ya es franco');
         return;
       }
       
       if (estaDeVacaciones(persona, diaDestino)) {
-        mostrarMensaje('❌ El destino tiene vacaciones');
+        mostrarMensaje('❌ El día destino tiene vacaciones');
         return;
       }
       
+      // Marcar el origen como NO franco y el destino como franco
       const keyOrigen = `franco_${mesSeleccionado}-${diaOrigen}`;
       const keyDestino = `franco_${mesSeleccionado}-${diaDestino}`;
       
       if (!vacaciones[persona]) vacaciones[persona] = {};
+      
+      // El día de origen ahora debe trabajarse (false = no es franco)
       vacaciones[persona][keyOrigen] = false;
+      // El día de destino ahora es franco (true = es franco)
       vacaciones[persona][keyDestino] = true;
       
       await guardarEnFirebase(vacaciones);
-      mostrarMensaje('✅ Franco movido');
+      mostrarMensaje(`✅ Franco movido del ${diaOrigen} al ${diaDestino}`);
       modoEdicion = false;
       francoSeleccionado = null;
       renderApp();
