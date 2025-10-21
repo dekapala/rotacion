@@ -24,7 +24,7 @@
 
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-    import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+    import { getFirestore, doc, setDoc, onSnapshot, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
     const firebaseConfig = {
       apiKey: "AIzaSyAKpos_QuZDFnB5VxPoEMa2d2aPn3KSzHI",
@@ -493,7 +493,7 @@
               <button onclick="toggleModoEdicion()" class="px-4 py-2 ${modoEdicion ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg font-semibold text-sm no-print">
                 ${modoEdicion ? '❌ Cancelar' : '✏️ Mover francos'}
               </button>
-              <button onclick="resetearRotaciones()" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-semibold text-sm no-print">🔄 Resetear rotaciones</button>
+              <button onclick="resetearRotaciones()" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 font-semibold text-sm no-print">🔄 Limpiar Firebase</button>
               <button onclick="exportarDatos()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm no-print">📥 Descargar</button>
               <button onclick="limpiarDatos()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm no-print">🗑️ Borrar todo</button>
             </div>
