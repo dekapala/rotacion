@@ -96,8 +96,33 @@
 
     function getRotaciones(mesKey) {
       const mes = meses.find(m => m.key === mesKey);
-      const gOffset = {'2025-10':4,'2025-11':0,'2025-12':3,'2026-01':2,'2026-02':1,'2026-03':8,'2026-04':3,'2026-05':6,'2026-06':1};
-      const sOffset = {'2025-10':1,'2025-11':6,'2025-12':0,'2026-01':8,'2026-02':7,'2026-03':5,'2026-04':0,'2026-05':3,'2026-06':7};
+      
+      // Offsets corregidos basados en:
+      // Gabriel/Nicolás: franco 21, 22, 23 octubre
+      // Sergio: franco 24, 25, 26 octubre
+      const gOffset = {
+        '2025-10': 4,  // Del 21-23 franco
+        '2025-11': 8,  // Continúa el patrón
+        '2025-12': 2,
+        '2026-01': 6,
+        '2026-02': 1,
+        '2026-03': 2,
+        '2026-04': 6,
+        '2026-05': 0,
+        '2026-06': 4
+      };
+      
+      const sOffset = {
+        '2025-10': 1,  // Del 24-26 franco
+        '2025-11': 5,  // Continúa el patrón
+        '2025-12': 8,
+        '2026-01': 3,
+        '2026-02': 7,
+        '2026-03': 8,
+        '2026-04': 3,
+        '2026-05': 6,
+        '2026-06': 1
+      };
       
       const rotacionGabrielNicolas = calcularRotacion(mes.dias, gOffset[mesKey]);
       const rotacionSergio = calcularRotacion(mes.dias, sOffset[mesKey]);
@@ -114,7 +139,7 @@
         }
       }
       
-      // Aplicar movimientos de francos para Nicolás
+      // Aplicar movimientos de francos para Nicolás (copia independiente)
       const rotacionNicolas = {...rotacionGabrielNicolas};
       if (vacaciones.nicolas) {
         for (let dia = 1; dia <= mes.dias; dia++) {
@@ -273,7 +298,15 @@
       meses.forEach(mes => {
         const rotaciones = getRotaciones(mes.key);
         const feriadosMes = feriados[mes.key] || [];
-        const rotacion = (persona === 'gabriel' || persona === 'nicolas') ? rotaciones.gabrielNicolas : rotaciones.sergio;
+        let rotacion;
+        
+        if (persona === 'gabriel') {
+          rotacion = rotaciones.gabrielNicolas;
+        } else if (persona === 'nicolas') {
+          rotacion = rotaciones.nicolas;
+        } else {
+          rotacion = rotaciones.sergio;
+        }
         
         feriadosMes.forEach(dia => {
           const keyVac = `${mes.key}-${dia}`;
@@ -460,6 +493,7 @@
         const nVac = estaDeVacaciones('nicolas', dia);
         const sVac = estaDeVacaciones('sergio', dia);
         const gFranco = !rotaciones.gabrielNicolas[dia];
+        const nFranco = !rotaciones.nicolas[dia];
         const sFranco = !rotaciones.sergio[dia];
         
         html += `
@@ -487,14 +521,14 @@
             }
             
             if (personaFiltro === 'todos' || personaFiltro === 'nicolas') {
-              html += `<td class="p-2 text-center ${nVac ? 'bg-purple-500 text-white font-bold' : (gFranco ? 'bg-pink-400 text-white font-semibold' : '')}">
-              ${modoEdicion && gFranco && !nVac ? `
+              html += `<td class="p-2 text-center ${nVac ? 'bg-purple-500 text-white font-bold' : (nFranco ? 'bg-pink-400 text-white font-semibold' : '')}">
+              ${modoEdicion && nFranco && !nVac ? `
                 <button onclick="var destino = prompt('Mover franco del día ${dia} al día:'); if(destino) moverFranco('nicolas', ${dia}, parseInt(destino));" class="w-full px-2 py-1 rounded hover:opacity-80 transition bg-orange-500 hover:bg-orange-600">
                   ↔️ MOVER
                 </button>
               ` : `
                 <button onclick="toggleVacaciones('nicolas', ${dia})" class="w-full px-2 py-1 rounded hover:opacity-80 transition">
-                  ${nVac ? '🏖️ VACACIONES' : (gFranco ? 'FRANCO' : 'Trabaja')}
+                  ${nVac ? '🏖️ VACACIONES' : (nFranco ? 'FRANCO' : 'Trabaja')}
                 </button>
               `}
             </td>`;
